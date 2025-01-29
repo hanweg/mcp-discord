@@ -1,5 +1,6 @@
 # Discord MCP Server
 
+[![smithery badge](https://smithery.ai/badge/@hanweg/mcp-discord)](https://smithery.ai/server/@hanweg/mcp-discord)
 A Model Context Protocol (MCP) server that provides Discord integration capabilities to MCP clients like Claude Desktop.
 
 <a href="https://glama.ai/mcp/servers/wvwjgcnppa"><img width="380" height="200" src="https://glama.ai/mcp/servers/wvwjgcnppa/badge" alt="mcp-discord MCP server" /></a>
@@ -34,6 +35,14 @@ A Model Context Protocol (MCP) server that provides Discord integration capabili
 - `delete_webhook`: Delete a webhook
 
 ## Installation
+
+### Installing via Smithery
+
+To install Discord Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@hanweg/mcp-discord):
+
+```bash
+npx -y @smithery/cli install @hanweg/mcp-discord --client claude
+```
 
 1. Set up your Discord bot:
    - Create a new application at [Discord Developer Portal](https://discord.com/developers/applications)
