@@ -328,6 +328,49 @@ async def list_tools() -> List[Tool]:
                 },
                 "required": ["channel_id", "message_id", "reason"]
             }
+        ),
+        
+        # DM Tools
+        Tool(
+            name="send_dm",
+            description="Send a direct message to a user",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "string",
+                        "description": "Discord user ID to send DM to"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Message content"
+                    }
+                },
+                "required": ["user_id", "content"]
+            }
+        ),
+        Tool(
+            name="dm_conversation",
+            description="Send a direct message to a user and wait for their response",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "string",
+                        "description": "Discord user ID to send DM to"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Message content to send"
+                    },
+                    "timeout": {
+                        "type": "number",
+                        "description": "Maximum time to wait for response in seconds",
+                        "default": 60
+                    }
+                },
+                "required": ["user_id", "content"]
+            }
         )
     ]
 
@@ -541,6 +584,73 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
             type="text",
             text=f"Removed reaction {arguments['emoji']} from message"
         )]
+    
+    # DM Tools
+    elif name == "send_dm":
+        user = await discord_client.fetch_user(int(arguments["user_id"]))
+        dm_channel = await user.create_dm()
+        try:
+            message = await dm_channel.send(arguments["content"])
+            return [TextContent(
+                type="text",
+                text=f"DM sent successfully to {user.name}. Message ID: {message.id}"
+            )]
+        except discord.errors.Forbidden as e:
+            if e.code == 50007:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: Cannot send DM to {user.name}. Possible reasons:\n"
+                         f"1. The user has blocked the bot\n"
+                         f"2. The user has their privacy settings set to not receive DMs from non-friends\n"
+                         f"3. The bot doesn't share a mutual server with this user\n\n"
+                         f"Solution: Make sure the bot and user share a server and that the user's privacy settings "
+                         f"allow DMs from server members."
+                )]
+            else:
+                raise
+    
+    elif name == "dm_conversation":
+        user = await discord_client.fetch_user(int(arguments["user_id"]))
+        dm_channel = await user.create_dm()
+        timeout = int(arguments.get("timeout", 60))
+        
+        try:
+            # Send the message
+            sent_message = await dm_channel.send(arguments["content"])
+            
+            # Define a check function to filter messages
+            def check(message):
+                return message.author.id == int(arguments["user_id"]) and message.channel.id == dm_channel.id
+            
+            try:
+                # Wait for the response with timeout
+                response = await discord_client.wait_for('message', check=check, timeout=timeout)
+                
+                return [TextContent(
+                    type="text",
+                    text=(f"DM conversation with {user.name}:\n"
+                         f"Bot: {arguments['content']}\n"
+                         f"{user.name}: {response.content}\n"
+                         f"Response received at: {response.created_at.isoformat()}")
+                )]
+            except asyncio.TimeoutError:
+                return [TextContent(
+                    type="text",
+                    text=f"DM sent to {user.name}, but they did not respond within {timeout} seconds."
+                )]
+        except discord.errors.Forbidden as e:
+            if e.code == 50007:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: Cannot send DM to {user.name}. Possible reasons:\n"
+                         f"1. The user has blocked the bot\n"
+                         f"2. The user has their privacy settings set to not receive DMs from non-friends\n"
+                         f"3. The bot doesn't share a mutual server with this user\n\n"
+                         f"Solution: Make sure the bot and user share a server and that the user's privacy settings "
+                         f"allow DMs from server members."
+                )]
+            else:
+                raise
 
     raise ValueError(f"Unknown tool: {name}")
 
