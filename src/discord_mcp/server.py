@@ -1,15 +1,16 @@
-import os
 import asyncio
 import logging
+import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
 from functools import wraps
+from typing import Any, Dict, List, Optional
 
 import discord
 from discord.ext import commands
 from mcp.server import Server
-from mcp.types import Tool, TextContent, EmptyResult
 from mcp.server.stdio import stdio_server
+from mcp.types import EmptyResult, TextContent, Tool
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("discord-mcp-server")
@@ -51,6 +52,15 @@ async def list_tools() -> List[Tool]:
     """List available Discord tools."""
     return [
         # Server Information Tools
+        Tool(
+            name="list_servers",
+            description="Get a list of all Discord servers the bot has access to with their details such as name, id, member count, and creation date.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
         Tool(
             name="get_server_info",
             description="Get information about a Discord server",
@@ -461,6 +471,21 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
             type="text",
             text=f"Server Members ({len(members)}):\n" + 
                  "\n".join(f"{m['name']} (ID: {m['id']}, Roles: {', '.join(m['roles'])})" for m in members)
+        )]
+    elif name == "list_servers":
+        servers = []
+        for guild in discord_client.guilds:
+            servers.append({
+                "id": str(guild.id),
+                "name": guild.name,
+                "member_count": guild.member_count,
+                "created_at": guild.created_at.isoformat()
+            })
+        
+        return [TextContent(
+            type="text",
+            text=f"Available Servers ({len(servers)}):\n" + 
+                "\n".join(f"{s['name']} (ID: {s['id']}, Members: {s['member_count']})" for s in servers)
         )]
 
     # Role Management Tools
