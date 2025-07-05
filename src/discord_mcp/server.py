@@ -40,11 +40,55 @@ app = Server("discord-server")
 # Store Discord client reference
 discord_client = None
 
+server_mappings = {}
+channel_mappings = {}
+
 @bot.event
 async def on_ready():
-    global discord_client
+    global discord_client, server_mappings, channel_mappings
     discord_client = bot
     logger.info(f"Logged in as {bot.user.name}")
+
+    server_mappings.clear()
+    channel_mappings.clear()
+
+    for guild in bot.guilds:
+        # Handle duplicate server names by appending ID
+        server_key = guild.name.lower()
+        if server_key in server_mappings:
+            server_key = f"{guild.name.lower()}_{guild.id}"
+        server_mappings[server_key] = str(guild.id)
+        
+        # Populate channel mappings for this server
+        for channel in guild.channels:
+            if hasattr(channel, 'name') and channel.name:
+                # Create the exact channel name as key
+                channel_key = channel.name.lower()
+                
+                # If duplicate exists, prefix with server name
+                if channel_key in channel_mappings:
+                    channel_key = f"{guild.name.lower()}_{channel.name.lower()}"
+                
+                channel_mappings[channel_key] = {
+                    "id": str(channel.id),
+                    "server_id": str(guild.id),
+                    "server_name": guild.name,
+                    "channel_name": channel.name,
+                    "channel_type": str(channel.type)
+                }
+                
+                # Also add server-specific key for disambiguation
+                server_channel_key = f"{guild.name.lower()}_{channel.name.lower()}"
+                if server_channel_key not in channel_mappings:
+                    channel_mappings[server_channel_key] = {
+                        "id": str(channel.id),
+                        "server_id": str(guild.id),
+                        "server_name": guild.name,
+                        "channel_name": channel.name,
+                        "channel_type": str(channel.type)
+                    }
+    
+    logger.info(f"Mapped {len(server_mappings)} servers and {len(channel_mappings)} channels")
 
 # Helper function to ensure Discord client is ready
 def require_discord_client(func):
@@ -59,21 +103,30 @@ def require_discord_client(func):
 async def list_tools() -> List[Tool]:
     """List available Discord tools."""
     return [
-        # Server Information Tools
+    Tool(
+        name="show_mappings",
+        description="Show all stored server and channel mappings for debugging",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    ),
+            # Server Information Tools
         Tool(
-            name="get_server_info",
-            description="Get information about a Discord server",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "server_id": {
-                        "type": "string",
-                        "description": "Discord server (guild) ID"
-                    }
-                },
-                "required": ["server_id"]
-            }
-        ),
+        name="get_server_info",
+        description="Get information about a Discord server. You can use server ID or server name.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "server_id": {
+                    "type": "string",
+                    "description": "Discord server (guild) ID or server name (e.g., 'my server')"
+                }
+            },
+            "required": ["server_id"]
+        }
+    ),
         Tool(
             name="get_channels",
             description="Get a list of all channels in a Discord server",
@@ -280,7 +333,7 @@ async def list_tools() -> List[Tool]:
                 "properties": {
                     "channel_id": {
                         "type": "string",
-                        "description": "Discord channel ID"
+                        "description": "Discord channel channel ID or channel name (e.g., 'general', 'announcements')"
                     },
                     "content": {
                         "type": "string",
@@ -298,7 +351,7 @@ async def list_tools() -> List[Tool]:
                 "properties": {
                     "channel_id": {
                         "type": "string",
-                        "description": "Discord channel ID"
+                        "description": "Discord channel ID or channel name (e.g., 'general')"
                     },
                     "limit": {
                         "type": "number",
@@ -363,21 +416,80 @@ async def list_tools() -> List[Tool]:
         )
     ]
 
+def resolve_server_id(server_identifier):
+    """Resolve server name or ID to actual server ID"""
+    # If it's already a numeric ID, return as is
+    if server_identifier.isdigit():
+        return server_identifier
+    
+    # Look up in mappings
+    server_key = server_identifier.lower()
+    if server_key in server_mappings:
+        return server_mappings[server_key]
+    
+    raise ValueError(f"Server '{server_identifier}' not found in mappings")
+
+def resolve_channel_id(channel_identifier):
+    """Resolve channel name or ID to actual channel ID"""
+    # If it's already a numeric ID, return as is
+    if channel_identifier.isdigit():
+        return channel_identifier
+    
+    # Try exact match first (case insensitive)
+    channel_key = channel_identifier.lower()
+    if channel_key in channel_mappings:
+        return channel_mappings[channel_key]["id"]
+    
+    # Try server-specific format if not found
+    # Look for channels that contain the identifier
+    for key, value in channel_mappings.items():
+        if channel_key in key:
+            return value["id"]
+    
+    # List available channels for debugging
+    available_channels = [k for k in channel_mappings.keys() if 'clips' in k or 'highlights' in k]
+    
+    raise ValueError(f"Channel '{channel_identifier}' not found. Similar channels: {available_channels}")
+
 @app.call_tool()
 @require_discord_client
 async def call_tool(name: str, arguments: Any) -> List[TextContent]:
     """Handle Discord tool calls."""
     
     if name == "send_message":
-        channel = await discord_client.fetch_channel(int(arguments["channel_id"]))
-        message = await channel.send(arguments["content"])
+        try:
+            channel_id = resolve_channel_id(arguments["channel_id"])
+            channel = await discord_client.fetch_channel(int(channel_id))
+            message = await channel.send(arguments["content"])
+            return [TextContent(
+                type="text",
+                text=f"Message sent successfully to #{channel.name}. Message ID: {message.id}"
+            )]
+        except ValueError as e:
+            return [TextContent(
+                type="text",
+                text=f"Error: {str(e)}"
+            )]
+    
+    elif name == "show_mappings":
         return [TextContent(
             type="text",
-            text=f"Message sent successfully. Message ID: {message.id}"
+            text=f"Server Mappings ({len(server_mappings)}):\n" + 
+                "\n".join(f"'{k}' -> {v}" for k, v in server_mappings.items()) +
+                f"\n\nChannel Mappings ({len(channel_mappings)}):\n" + 
+                "\n".join(f"'{k}' -> {v}" for k, v in list(channel_mappings.items())[:10]) +  # Show first 10
+                (f"\n... and {len(channel_mappings) - 10} more channels" if len(channel_mappings) > 10 else "")
         )]
 
     elif name == "read_messages":
-        channel = await discord_client.fetch_channel(int(arguments["channel_id"]))
+        try:
+            channel_id = resolve_channel_id(arguments["channel_id"])
+            channel = await discord_client.fetch_channel(int(channel_id))
+        except ValueError as e:
+            return [TextContent(
+                type="text",
+                text=f"Error: {str(e)}"
+        )]
         limit = min(int(arguments.get("limit", 10)), 100)
         fetch_users = arguments.get("fetch_reaction_users", False)  # Only fetch users if explicitly requested
         messages = []
