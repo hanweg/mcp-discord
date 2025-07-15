@@ -41,3 +41,9 @@ venv.bak/
 
 # Logs
 *.log
+
+# AI
+CLAUDE.md
+
+# Docs
+docs/

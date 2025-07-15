@@ -291,6 +291,28 @@ async def list_tools() -> List[Tool]:
             }
         ),
         Tool(
+            name="reply_to_message",
+            description="Reply to a specific message",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "channel_id": {
+                        "type": "string",
+                        "description": "Discord channel ID"
+                    },
+                    "message_id": {
+                        "type": "string",
+                        "description": "ID of the message to reply to"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Reply content"
+                    }
+                },
+                "required": ["channel_id", "message_id", "content"]
+            }
+        ),
+        Tool(
             name="read_messages",
             description="Read recent messages from a channel",
             inputSchema={
@@ -376,6 +398,15 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
             text=f"Message sent successfully. Message ID: {message.id}"
         )]
 
+    elif name == "reply_to_message":
+        channel = await discord_client.fetch_channel(int(arguments["channel_id"]))
+        reference_message = await channel.fetch_message(int(arguments["message_id"]))
+        message = await reference_message.reply(arguments["content"])
+        return [TextContent(
+            type="text",
+            text=f"Reply sent successfully. Message ID: {message.id}"
+        )]
+
     elif name == "read_messages":
         channel = await discord_client.fetch_channel(int(arguments["channel_id"]))
         limit = min(int(arguments.get("limit", 10)), 100)
@@ -406,7 +437,7 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
             type="text",
             text=f"Retrieved {len(messages)} messages:\n\n" + 
                  "\n".join([
-                     f"{m['author']} ({m['timestamp']}): {m['content']}\n" +
+                     f"[ID: {m['id']}] {m['author']} ({m['timestamp']}): {m['content']}\n" +
                      f"Reactions: {', '.join([format_reaction(r) for r in m['reactions']]) if m['reactions'] else 'No reactions'}"
                      for m in messages
                  ])

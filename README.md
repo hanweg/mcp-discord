@@ -16,7 +16,8 @@ A Model Context Protocol (MCP) server that provides Discord integration capabili
 
 ### Message Management
 - `send_message`: Send a message to a channel
-- `read_messages`: Read recent message history
+- `reply_to_message`: Reply to a specific message
+- `read_messages`: Read recent message history (now includes message IDs)
 - `add_reaction`: Add a reaction to a message
 - `add_multiple_reactions`: Add multiple reactions to a message
 - `remove_reaction`: Remove a reaction from a message
