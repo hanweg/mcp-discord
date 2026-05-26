@@ -353,6 +353,50 @@ async def list_tools() -> List[Tool]:
             }
         ),
         Tool(
+            name="list_forum_threads",
+            description="List threads in a Discord forum channel (active threads and, optionally, archived ones). Use this before read_thread_messages to discover thread IDs in a forum.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "channel_id": {
+                        "type": "string",
+                        "description": "Forum channel ID"
+                    },
+                    "include_archived": {
+                        "type": "boolean",
+                        "description": "Include archived threads (default: true)"
+                    },
+                    "archived_limit": {
+                        "type": "number",
+                        "description": "Max archived threads to fetch (default 50, max 200)",
+                        "minimum": 1,
+                        "maximum": 200
+                    }
+                },
+                "required": ["channel_id"]
+            }
+        ),
+        Tool(
+            name="read_thread_messages",
+            description="Read recent messages from a Discord thread (e.g. a thread inside a forum channel). Pass a thread_id obtained from list_forum_threads.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "thread_id": {
+                        "type": "string",
+                        "description": "Discord thread ID"
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Number of messages to fetch (max 100)",
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["thread_id"]
+            }
+        ),
+        Tool(
             name="list_servers",
             description="Get a list of all Discord servers the bot has access to with their details such as name, id, member count, and creation date.",
             inputSchema={
@@ -589,6 +633,90 @@ async def call_tool(name: str, arguments: Any) -> List[TextContent]:
         return [TextContent(
             type="text",
             text=f"Removed reaction {arguments['emoji']} from message"
+        )]
+
+    elif name == "list_forum_threads":
+        channel = await discord_client.fetch_channel(int(arguments["channel_id"]))
+        if not isinstance(channel, discord.ForumChannel):
+            return [TextContent(
+                type="text",
+                text=f"Channel {channel.id} is not a forum channel (type: {channel.type})."
+            )]
+
+        include_archived = arguments.get("include_archived", True)
+        archived_limit = min(int(arguments.get("archived_limit", 50)), 200)
+
+        threads = []
+        for t in channel.threads:
+            threads.append({
+                "id": str(t.id),
+                "name": t.name,
+                "archived": t.archived,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "message_count": t.message_count,
+                "owner_id": str(t.owner_id) if t.owner_id else None,
+            })
+
+        if include_archived:
+            async for t in channel.archived_threads(limit=archived_limit):
+                threads.append({
+                    "id": str(t.id),
+                    "name": t.name,
+                    "archived": True,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                    "message_count": t.message_count,
+                    "owner_id": str(t.owner_id) if t.owner_id else None,
+                })
+
+        return [TextContent(
+            type="text",
+            text=f"Threads in #{channel.name} ({len(threads)}):\n" +
+                 "\n".join(
+                     f"- {t['name']} (ID: {t['id']}, archived={t['archived']}, "
+                     f"msgs={t['message_count']}, created={t['created_at']}, owner={t['owner_id']})"
+                     for t in threads
+                 )
+        )]
+
+    elif name == "read_thread_messages":
+        thread = await discord_client.fetch_channel(int(arguments["thread_id"]))
+        if not isinstance(thread, discord.Thread):
+            return [TextContent(
+                type="text",
+                text=f"Channel {thread.id} is not a thread (type: {thread.type})."
+            )]
+
+        limit = min(int(arguments.get("limit", 50)), 100)
+        messages = []
+        async for message in thread.history(limit=limit):
+            reaction_data = []
+            for reaction in message.reactions:
+                emoji_str = (
+                    str(reaction.emoji.name)
+                    if hasattr(reaction.emoji, "name") and reaction.emoji.name
+                    else str(reaction.emoji.id) if hasattr(reaction.emoji, "id")
+                    else str(reaction.emoji)
+                )
+                reaction_data.append({"emoji": emoji_str, "count": reaction.count})
+            messages.append({
+                "id": str(message.id),
+                "author": str(message.author),
+                "content": message.content,
+                "timestamp": message.created_at.isoformat(),
+                "reactions": reaction_data,
+            })
+
+        def format_reaction(r):
+            return f"{r['emoji']}({r['count']})"
+
+        return [TextContent(
+            type="text",
+            text=f"Thread '{thread.name}' ({len(messages)} messages):\n\n" +
+                 "\n".join([
+                     f"{m['author']} ({m['timestamp']}): {m['content']}\n" +
+                     f"Reactions: {', '.join([format_reaction(r) for r in m['reactions']]) if m['reactions'] else 'No reactions'}"
+                     for m in messages
+                 ])
         )]
 
     elif name == "list_servers":
